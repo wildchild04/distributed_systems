@@ -27,3 +27,54 @@ These notes reference the Maelstrom repo at `~/repos/maelstrom`. The chapters ma
 - Maelstrom Ch5 (Datomic) → `04-transactions.md`
 - Maelstrom Ch6 (Raft) → `05-consensus.md`
 - Cross-cutting synthesis → `06-patterns-overview.md`
+
+## Appendixes — System Design Interview (Alex Xu)
+
+Supplementary notes from [liquidslr/system-design-notes](https://github.com/liquidslr/system-design-notes) (based on *System Design Interview* Vol 1 & 2 by Alex Xu). These chapters overlap with or extend the Maelstrom concepts above.
+
+### A. Direct Overlaps
+
+| Maelstrom Chapter | Alex Xu Chapter | Shared Concept |
+|-------------------|-----------------|----------------|
+| 02 - Gossip & Broadcast | 06 - Key-Value Store | Gossip protocol for failure detection & state propagation |
+| 03 - CRDTs | 06 - Key-Value Store | Eventual consistency, conflict resolution (Dynamo-style) |
+| 05 - Consensus (Raft) | 06 - Key-Value Store | Quorum replication, consistency guarantees |
+| 05 - Consensus (Raft) | 19 - Distributed Message Queue | Leader-based replication, log ordering |
+| 06 - Patterns (CAP/PACELC) | 06 - Key-Value Store | CAP tradeoffs, consistency spectrum |
+| 01 - Foundations (Unique ID) | 07 - Unique ID Generator | Snowflake, node-identity-based ID generation |
+
+### B. Conceptual Overlaps
+
+| Maelstrom Concept | Alex Xu Application |
+|-------------------|-------------------|
+| Reliable broadcast + retries | 10 - Notification System (fan-out, delivery guarantees) |
+| Idempotency (cross-cutting) | 26 - Payment System, 27 - Digital Wallet |
+| Log replication (Raft) | 19 - Message Queue (commit log, offset tracking) |
+| CAS / linearizability | 22 - Hotel Reservation (concurrency control) |
+| Consistent hashing (Dynamo theory) | 05 - Consistent Hashing |
+| Anti-entropy / state reconciliation | 15 - Google Drive (sync conflicts) |
+
+### C. Implementable Extensions
+
+Chapters from Alex Xu that can be built on top of the Maelstrom node framework:
+
+| Chapter | What to Build | Builds On |
+|---------|--------------|-----------|
+| 05 - Consistent Hashing | Hash ring with virtual nodes | Foundations (node identity) |
+| 04 - Rate Limiter | Token bucket / sliding window | Foundations (RPC) |
+| 07 - Unique ID Generator | Snowflake-style generator | Foundations (node identity) |
+| 06 - Key-Value Store | Dynamo-style KV with quorums | Gossip + CRDTs + Consensus |
+| 19 - Distributed Message Queue | Partitioned log with offsets | Consensus (Raft log) |
+
+### D. CodeCrafters — Systems Internals
+
+[CodeCrafters](https://codecrafters.io) challenges that complement the distributed systems theory above. Maelstrom teaches how nodes coordinate; CodeCrafters teaches what's inside each node.
+
+| Challenge | Overlap | Builds On |
+|-----------|---------|-----------|
+| Build your own Redis | KV store, replication, expiry | CRDTs (Ch 03), Key-Value Store (Alex Xu 06) |
+| Build your own Kafka | Commit log, partitions, consumer offsets | Consensus/Raft log (Ch 05), Message Queue (Alex Xu 19) |
+| Build your own SQLite | B-tree, pages, transactions | Transactions (Ch 04) |
+| Build your own DNS | Message parsing, request routing | Transport/codec layer (Ch 08) |
+| Build your own HTTP server | Concurrent connections, request/response | Foundations (Ch 01) |
+| Build your own Git | Content-addressable storage, immutable DAG | Immutability (cross-cutting, Ch 06) |

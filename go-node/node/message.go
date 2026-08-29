@@ -9,7 +9,12 @@ type Message struct {
 }
 
 type BodyHeader struct {
-	MsgType string `json:"type"`
+	MsgType   string  `json:"type"`
+	InReplyTo float64 `json:"in_reply_to"`
+}
+
+func (b BodyHeader) GetInReplyTo() int {
+	return int(b.InReplyTo)
 }
 
 type ResponseBody interface {

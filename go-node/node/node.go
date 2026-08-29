@@ -2,7 +2,10 @@ package node
 
 import (
 	"encoding/json"
+	"fmt"
+	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type InitBody struct {
@@ -22,20 +25,33 @@ type InitResponse struct {
 	MsgId     int    `json:"msg_id"`
 }
 
+type RPCBody interface {
+	SetMsgId(id int)
+	GetDecodedBody() ([]byte, error)
+}
+
 type Node struct {
-	Id        string
-	nodeIDs   []string
-	transport Transport
-	router    *Router
-	sequence  atomic.Int64
+	Id             string
+	nodeIDs        []string
+	transport      Transport
+	router         *Router
+	Sequence       atomic.Int64
+	pending        map[int]chan Message
+	mu             sync.Mutex
+	rpcTimeout     int
+	rpcMaxAttempts int
 }
 
 func NewNode(transport Transport, router *Router) *Node {
 	return &Node{
-		nodeIDs:   make([]string, 0, 3),
-		transport: transport,
-		router:    router,
-		sequence:  atomic.Int64{},
+		nodeIDs:        make([]string, 0, 3),
+		transport:      transport,
+		router:         router,
+		Sequence:       atomic.Int64{},
+		pending:        map[int]chan Message{},
+		mu:             sync.Mutex{},
+		rpcTimeout:     1000,
+		rpcMaxAttempts: 3,
 	}
 }
 
@@ -72,7 +88,7 @@ func (n *Node) init() error {
 
 	initResponse := InitResponse{
 		MsgType:   "init_ok",
-		MsgId:     int(n.sequence.Add(1)),
+		MsgId:     int(n.Sequence.Add(1)),
 		InReplyTo: body.MsgId,
 	}
 
@@ -92,6 +108,18 @@ func (n *Node) init() error {
 
 	Log("Node init with id '%s' and node ids'%s'", n.Id, n.nodeIDs)
 	return nil
+}
+
+func (n *Node) register(id int, ch chan Message) {
+	n.mu.Lock()
+	n.pending[id] = ch
+	n.mu.Unlock()
+}
+
+func (n *Node) unregister(id int) {
+	n.mu.Lock()
+	delete(n.pending, id)
+	n.mu.Unlock()
 }
 
 func (n *Node) Start() {
@@ -119,9 +147,22 @@ func (n *Node) Start() {
 		}
 
 		Log("Got message %s", msg)
-		var msgMap map[string]any
 		var bodyHeader BodyHeader
 		loopErr = json.Unmarshal(msg.Body, &bodyHeader)
+
+		n.mu.Lock()
+		ch, isPending := n.pending[bodyHeader.GetInReplyTo()]
+		n.mu.Unlock()
+		if isPending {
+			select {
+
+			case ch <- msg:
+			default:
+			}
+
+			continue
+		}
+
 		if loopErr != nil {
 			Log("could not get sg type. msg %s err %s", msg, loopErr)
 			return
@@ -129,7 +170,6 @@ func (n *Node) Start() {
 
 		msgType := bodyHeader.MsgType
 		if msgType == "" {
-			Log("messega type is not a string or malformed, %v", msgMap["type"])
 			continue
 		}
 
@@ -146,6 +186,7 @@ func (n *Node) Start() {
 func (n *Node) Send(dst string, body []byte) error {
 
 	msg := Message{
+			Log("messega type is not a string or malformed, %v", msgMap["type"])
 		Src:  n.Id,
 		Dest: dst,
 		Body: body,
@@ -171,4 +212,35 @@ func (n *Node) Reply(msgId int, dst string, body ResponseBody) error {
 	}
 	return n.Send(dst, bodyBytes)
 
+}
+
+func (n *Node) RPC(dst string, body RPCBody) (Message, error) {
+	id := int(n.Sequence.Add(1))
+	body.SetMsgId(id)
+	ch := make(chan Message, 1)
+	n.register(id, ch)
+	defer n.unregister(id)
+	var reply Message
+
+	attempts := 0
+	for attempts < n.rpcMaxAttempts {
+		bytes, err := body.GetDecodedBody()
+		if err != nil {
+			return Message{}, err
+		}
+
+		err = n.Send(dst, bytes)
+		if err != nil {
+			return Message{}, err
+		}
+
+		select {
+		case reply = <-ch:
+			return reply, nil
+		case <-time.After(time.Duration(n.rpcTimeout) * time.Millisecond):
+			attempts++
+		}
+	}
+
+	return Message{}, fmt.Errorf("RPC Reply from %s was not recieved", dst)
 }
